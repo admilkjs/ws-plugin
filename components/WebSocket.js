@@ -139,6 +139,9 @@ async function createWebSocket (data) {
       client.createHttpPost()
       sendSocketList.push(client)
       break
+    case 7:
+      client.createOneBotAppWs()
+      break
     default:
   }
 }

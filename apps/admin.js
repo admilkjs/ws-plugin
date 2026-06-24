@@ -227,7 +227,7 @@ export class setting extends plugin {
           '连接名字,连接类型\n',
           '---------------------------------\n',
           '连接名字: 用来区分每个连接\n',
-          '连接类型: 1:反向ws连接 2:正向ws连接 3:gscore连接 4:red连接 5:正向http 6:反向http'
+          '连接类型: 1:反向ws连接 2:正向ws连接 3:gscore连接 4:red连接 5:正向http 6:反向http 7:OneBot应用端ws'
         ])
         // await this.reply([
         //     '请一次性发送以下参数:\n',
@@ -396,6 +396,18 @@ export class setting extends plugin {
             // 'secret: 秘钥',
           ])
           break
+        case '7':
+          await this.reply([
+            '请继续发送以下参数,用逗号分割\n',
+            '---------------------------------\n',
+            '连接地址,重连间隔(默认5),最大重连次数(默认0),access-token(默认空)\n',
+            '---------------------------------\n',
+            '连接地址: OneBot实现端ws地址,比如wss://example.com/OneBotv11/123456\n',
+            '重连间隔: 断开连接时每隔多少秒进行重新连接\n',
+            '最大重连次数: 达到这个数之后不进行重连,为0时会不断重连\n',
+            'access-token: 访问秘钥'
+          ])
+          break
         default:
           await this.reply('格式有误,请检查后重新发送#ws添加连接')
           this.finish('checkAddWs')
@@ -413,6 +425,7 @@ export class setting extends plugin {
       switch (addWsMsg[1]) {
         case '1':
         case '3':
+        case '7':
           config.reconnectInterval = Number(addWsMsg[3]) || 5
           config.maxReconnectAttempts = Number(addWsMsg[4]) || 0
           config.accessToken = addWsMsg[5]
