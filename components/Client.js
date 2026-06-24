@@ -103,7 +103,6 @@ export default class Client {
 
   createOneBotAppWs () {
     const headers = {
-      'X-Self-ID': this.self_id,
       'X-Client-Role': 'Universal',
       'User-Agent': `ws-plugin/${Version.version}`
     }
@@ -134,29 +133,29 @@ export default class Client {
       }
       this.status = 1
       this.reconnectCount = 1
-      const selfId = Number(this.self_id) || this.self_id
-      await this.appAdapter.connect({
-        self_id: selfId,
-        time: Math.floor(Date.now() / 1000)
-      }, this.ws).catch(error => {
+      await this.appAdapter.connectEndpoint(this.ws, this.getOneBotAppSelfIdHint()).catch(error => {
         logger.error(`[ws-plugin] ${this.name} OneBot应用端初始化失败`, error)
       })
     })
 
     this.ws.on('message', event => {
       const text = Buffer.isBuffer(event) ? event.toString() : String(event.data ?? event)
-      this.appAdapter.message(text, this.ws)
+      this.appAdapter.message(text, this.ws).catch(error => {
+        logger.error(`[ws-plugin] ${this.name} OneBot应用端消息处理失败`, error)
+      })
     })
 
     this.ws.on('close', async code => {
       logger.warn(`[ws-plugin] ${this.name} OneBot应用端连接已关闭`)
-      if (this.status == 1 && Array.isArray(Bot?.uin) && Bot.uin.includes(this.self_id)) {
-        Bot.uin = Bot.uin.filter(i => i != this.self_id)
+      const appSelfId = this.appSelfId
+      if (this.status == 1 && appSelfId && Array.isArray(Bot?.uin)) {
+        Bot.uin = Bot.uin.filter(i => String(i) !== String(appSelfId))
       }
-      if (this.status == 1) {
-        delete Bot[this.self_id]
-        delete Bot[String(this.self_id)]
-        delete Bot[Number(this.self_id)]
+      if (this.status == 1 && appSelfId) {
+        delete Bot[appSelfId]
+        delete Bot[String(appSelfId)]
+        delete Bot[Number(appSelfId)]
+        this.appSelfId = null
       }
       if (Config.disconnectToMaster && this.reconnectCount == 1 && this.status == 1) {
         await this.sendMasterMsg(`${this.name} 已断开连接...`)
@@ -185,6 +184,20 @@ export default class Client {
     this.ws.on('error', event => {
       logger.error(`[ws-plugin] ${this.name} OneBot应用端连接失败\n${event}`)
     })
+  }
+
+  getOneBotAppSelfIdHint () {
+    try {
+      const { pathname, searchParams } = new URL(this.address)
+      const querySelfId = searchParams.get('self_id') || searchParams.get('selfId')
+      if (querySelfId) return Number(querySelfId) || querySelfId
+      const tail = pathname.split('/').filter(Boolean).at(-1)
+      if (/^\d+$/.test(tail)) return Number(tail) || tail
+    } catch (error) {
+      const match = String(this.address).match(/(?:^|\/)(\d+)(?:\?|#|$)/)
+      if (match) return Number(match[1]) || match[1]
+    }
+    return null
   }
 
   createServer () {

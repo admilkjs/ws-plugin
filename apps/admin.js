@@ -301,6 +301,11 @@ export class setting extends plugin {
     if (addWsMsg.length == 2) {
       for (const i of Config.servers) {
         if (i.name == addWsMsg[0]) {
+          if (Number(i.type) === 7) {
+            this.reply(`已经有连接名为${addWsMsg[0]}的OneBot应用端ws连接`)
+            this.finish('checkAddWs')
+            return
+          }
           if (Array.isArray(i.uin)) {
             if (i.uin.some(m => m == this.e.self_id)) {
               this.reply(`已经有连接名为${addWsMsg[0]}的连接并且已添加uin`)
@@ -443,10 +448,10 @@ export class setting extends plugin {
           break
       }
       // config.uin = Number(this.e.bot.uin || this.e.self_id) || String(this.e.bot.uin || this.e.self_id)
-      if (this.e.group) {
+      if (addWsMsg[1] !== '7' && this.e.group) {
         const seld_id = this.e.group?.bot?.uin || this.e.self_id
         config.uin = Number(seld_id) || String(seld_id)
-      } else if (this.e.friend) {
+      } else if (addWsMsg[1] !== '7' && this.e.friend) {
         const seld_id = this.e.friend?.bot?.uin || this.e.self_id
         config.uin = Number(seld_id) || String(seld_id)
       }
@@ -686,11 +691,12 @@ export class setting extends plugin {
       }
       let str = `连接名字: ${s.name}\n连接类型: ${s.type}\n当前状态: ${status}`
       if (!this.e.isGroup && this.e.isMaster) {
-        str += `\n连接地址: ${s.address}\nBot账号: ${s.uin}`
+        str += `\n连接地址: ${s.address}`
+        if (Number(s.type) !== 7) str += `\nBot账号: ${s.uin}`
         if (msg.length != 0) str = '\n---------------\n' + str
         msg.push(str)
       } else {
-        let uin = s.uin
+        let uin = Number(s.type) === 7 ? this.e.self_id : s.uin
         if (Array.isArray(uin)) {
           uin = this.e.user_id
         }

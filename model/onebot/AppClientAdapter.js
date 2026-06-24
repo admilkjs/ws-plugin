@@ -14,6 +14,31 @@ class OneBotAppClientAdapter {
       return Bot.String(msg).replace(/base64:\/\/.*?(,|]|")/g, "base64://...$1")
     }
 
+    normalizeSelfId (self_id) {
+      return Number(self_id) || self_id
+    }
+
+    setClientSelfId (self_id) {
+      if (!this.client) return
+      this.client.appSelfId = self_id
+      this.client.self_id = self_id
+    }
+
+    hasSelfId (self_id) {
+      if (!self_id) return false
+      const id = String(self_id)
+      const list = Array.isArray(Bot.uin) ? Bot.uin : [Bot.uin].filter(Boolean)
+      return list.some(i => String(i) === id) && !!Bot[self_id]
+    }
+
+    addSelfId (self_id) {
+      if (Array.isArray(Bot.uin)) {
+        if (!Bot.uin.some(i => String(i) === String(self_id))) Bot.uin.push(self_id)
+      } else if (String(Bot.uin) !== String(self_id)) {
+        Bot.uin = [Bot.uin, self_id].filter(Boolean)
+      }
+    }
+
     sendApi (data, ws, action, params = {}) {
       const echo = randomUUID()
       const request = { action, params, echo }
@@ -850,9 +875,83 @@ class OneBotAppClientAdapter {
       }
     }
 
-    async connect (data, ws) {
+    async connectEndpoint (ws, selfIdHint) {
+      const time = Math.floor(Date.now() / 1000)
+      const hint = this.normalizeSelfId(selfIdHint)
+      const probe = {
+        self_id: hint || 0,
+        time
+      }
+      const info = await this.sendApi(probe, ws, "get_login_info").catch(error => {
+        if (!hint) throw error
+        Bot.makeLog("warn", ["获取登录信息失败，使用连接地址中的self_id", error], hint)
+        return {
+          user_id: hint,
+          nickname: hint
+        }
+      })
+      const self_id = this.normalizeSelfId(info?.user_id || hint)
+      if (!self_id) throw Bot.makeError("无法确定OneBot账号", { action: "get_login_info" }, { info })
+      await this.connect({ self_id, time }, ws, info)
+    }
+
+    async finishConnect (data, loginInfo, warmup) {
+      data.bot.info = loginInfo || (warmup
+        ? await data.bot.sendApi("get_login_info").catch(() => ({
+          user_id: data.self_id,
+          nickname: data.self_id
+        }))
+        : data.bot.info?.user_id
+          ? data.bot.info
+          : {
+              user_id: data.self_id,
+              nickname: data.self_id
+            })
+      data.bot.clients ??= []
+      if (!warmup) {
+        data.bot.version ??= {
+          id: this.id,
+          name: this.name,
+          version: this.name
+        }
+        return
+      }
+      if (data.bot.__onebotAppReady) return
+      data.bot.version = {
+        ...((await data.bot.sendApi("get_version_info").catch(() => ({}))) || {}),
+        id: this.id,
+        name: this.name,
+        get version () {
+          return this.app_full_name || `${this.app_name} v${this.app_version}`
+        }
+      }
+
+      data.bot.getFriendMap().catch(err => {
+        Bot.makeLog("warn", ["获取好友列表失败", err], data.self_id)
+      })
+      data.bot.getGroupMap().catch(err => {
+        Bot.makeLog("warn", ["获取群列表失败", err], data.self_id)
+      })
+
+      data.bot.__onebotAppReady = true
+      Bot.makeLog(
+        "mark",
+        `${this.name}(${this.id}) ${data.bot.version.version} 已连接`,
+        data.self_id
+      )
+      Bot.em(`connect.${data.self_id}`, data)
+    }
+
+    async connect (data, ws, loginInfo, options = {}) {
+      const { warmup = true } = options
+      data.self_id = this.normalizeSelfId(data.self_id)
       if (Bot[data.self_id]) {
         data.bot = Bot[data.self_id]
+        data.bot.ws = ws
+        data.bot.sendApi = this.sendApi.bind(this, data, ws)
+        this.addSelfId(data.self_id)
+        this.setClientSelfId(data.self_id)
+        await this.finishConnect(data, loginInfo, warmup)
         return
       }
       Bot[data.self_id] = {
@@ -936,39 +1035,10 @@ class OneBotAppClientAdapter {
       }
       data.bot = Bot[data.self_id]
 
-      if (Array.isArray(Bot.uin)) {
-        if (!Bot.uin.includes(data.self_id)) Bot.uin.push(data.self_id)
-      } else if (Bot.uin !== data.self_id) {
-        Bot.uin = [Bot.uin, data.self_id].filter(Boolean)
-      }
+      this.addSelfId(data.self_id)
+      this.setClientSelfId(data.self_id)
 
-      data.bot.info = await data.bot.sendApi("get_login_info").catch(() => ({
-        user_id: data.self_id,
-        nickname: data.self_id
-      }))
-      data.bot.clients = []
-      data.bot.version = {
-        ...((await data.bot.sendApi("get_version_info").catch(() => ({}))) || {}),
-        id: this.id,
-        name: this.name,
-        get version () {
-          return this.app_full_name || `${this.app_name} v${this.app_version}`
-        }
-      }
-
-      data.bot.getFriendMap().catch(err => {
-        Bot.makeLog("warn", ["获取好友列表失败", err], data.self_id)
-      })
-      data.bot.getGroupMap().catch(err => {
-        Bot.makeLog("warn", ["获取群列表失败", err], data.self_id)
-      })
-
-      Bot.makeLog(
-        "mark",
-        `${this.name}(${this.id}) ${data.bot.version.version} 已连接`,
-        data.self_id
-      )
-      Bot.em(`connect.${data.self_id}`, data)
+      await this.finishConnect(data, loginInfo, warmup)
     }
 
     makeMessage (data) {
@@ -1337,20 +1407,20 @@ class OneBotAppClientAdapter {
       if (data.status) Object.assign(data.bot.stat, data.status)
     }
 
-    makeMeta (data, ws) {
+    async makeMeta (data, ws) {
       switch (data.meta_event_type) {
         case "heartbeat":
           this.heartbeat(data)
           break
         case "lifecycle":
-          this.connect(data, ws)
+          await this.connect(data, ws)
           break
         default:
           Bot.makeLog("warn", `未知消息：${logger.magenta(data.raw)}`, data.self_id)
       }
     }
 
-    message (data, ws) {
+    async message (data, ws) {
       try {
         data = {
           ...JSON.parse(data),
@@ -1361,9 +1431,15 @@ class OneBotAppClientAdapter {
       }
 
       if (data.post_type) {
-        if (data.meta_event_type !== "lifecycle" && !Bot.uin.includes(data.self_id)) {
-          Bot.makeLog("warn", `找不到对应Bot，忽略消息：${logger.magenta(data.raw)}`, data.self_id)
-          return false
+        data.self_id = this.normalizeSelfId(data.self_id)
+        if (data.meta_event_type !== "lifecycle" && !this.hasSelfId(data.self_id)) {
+          await this.connect({
+            self_id: data.self_id,
+            time: data.time || Math.floor(Date.now() / 1000)
+          }, ws, {
+            user_id: data.self_id,
+            nickname: data.self_id
+          }, { warmup: false })
         }
         data.bot = Bot[data.self_id]
 
