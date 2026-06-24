@@ -1103,6 +1103,23 @@ class OneBotAppClientAdapter {
             true
           )
           break
+        case "friend_decrease":
+          Bot.makeLog(
+            "info",
+            `好友减少：${data.nickname || data.user_id}`,
+            `${data.self_id} <= ${data.user_id}`,
+            true
+          )
+          data.bot.fl.delete(data.user_id)
+          break
+        case "input_status":
+          data.post_type = "internal"
+          data.notice_type = "input"
+          data.sub_type = "input_status"
+          data.end ??= data.event_type !== 1
+          data.message ||= data.status_text || `对方${data.end ? "结束" : "正在"}输入...`
+          Bot.makeLog("info", data.message, `${data.self_id} <= ${data.user_id}`, true)
+          break
         case "group_recall":
           Bot.makeLog(
             "info",
@@ -1150,6 +1167,17 @@ class OneBotAppClientAdapter {
           data.set = data.sub_type === "set"
           data.bot.pickMember(data.group_id, data.user_id).getInfo()
           break
+        case "group_transfer":
+          Bot.makeLog(
+            "info",
+            `群主转让：${data.operator_id} => ${data.user_id}`,
+            `${data.self_id} <= ${data.group_id}`,
+            true
+          )
+          data.bot.pickGroup(data.group_id).getInfo()
+          data.bot.pickMember(data.group_id, data.user_id).getInfo()
+          if (data.operator_id) data.bot.pickMember(data.group_id, data.operator_id).getInfo()
+          break
         case "group_upload":
           Bot.makeLog(
             "info",
@@ -1174,6 +1202,31 @@ class OneBotAppClientAdapter {
             true
           )
           data.bot.pickMember(data.group_id, data.user_id).getInfo()
+          break
+        case "group_sign":
+          Bot.makeLog(
+            "info",
+            `群打卡：${data.nickname || data.user_id} ${data.sign_text || ""}`,
+            `${data.self_id} <= ${data.group_id}`,
+            true
+          )
+          break
+        case "group_read":
+          Bot.makeLog(
+            "info",
+            `群消息已读：${data.seq}`,
+            `${data.self_id} <= ${data.group_id}`,
+            true
+          )
+          break
+        case "group_reaction":
+          data.message_id ??= data.seq
+          Bot.makeLog(
+            "info",
+            `群消息回应：${data.user_id} ${data.set ? "添加" : "取消"} ${data.type || data.id}`,
+            `${data.self_id} <= ${data.group_id}`,
+            true
+          )
           break
         case "group_msg_emoji_like":
           Bot.makeLog(
@@ -1205,6 +1258,22 @@ class OneBotAppClientAdapter {
               { Bot.makeLog(
                 "info",
                   `好友戳一戳：${data.operator_id} => ${data.target_id}`,
+                  data.self_id
+              ) }
+              break
+            case "poke_recall":
+              data.operator_id = data.user_id
+              if (data.group_id)
+              { Bot.makeLog(
+                "info",
+                  `群戳一戳撤回：${data.operator_id} => ${data.target_id}`,
+                  `${data.self_id} <= ${data.group_id}`,
+                  true
+              ) }
+              else
+              { Bot.makeLog(
+                "info",
+                  `好友戳一戳撤回：${data.operator_id} => ${data.target_id}`,
                   data.self_id
               ) }
               break
